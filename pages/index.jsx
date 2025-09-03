@@ -1,28 +1,18 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 
-export default function Home() {
-  const [url, setUrl] = useState("");
+export default function Home({ initialAnalysis, initialPreview, initialUrl }) {
+  const [url, setUrl] = useState(initialUrl || "");
+  const [analysis, setAnalysis] = useState(initialAnalysis || "");
+  const [preview, setPreview] = useState(initialPreview || "");
   const [loading, setLoading] = useState(false);
-  const [analysis, setAnalysis] = useState("");
-  const [preview, setPreview] = useState("");
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!url.trim()) return;
     setLoading(true);
-    setAnalysis("");
-    setPreview("");
 
-    const res = await fetch("/api/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-    });
-    const data = await res.json();
-    setAnalysis(data.analysis || "");
-    setPreview(data.generated || "");
-    setLoading(false);
+    // Reload page with ?url=... (SSR will re-run)
+    window.location.href = `/?url=${encodeURIComponent(url)}`;
   }
 
   return (
@@ -35,10 +25,10 @@ export default function Home() {
           value={url}
           onChange={(e) => setUrl(e.target.value)}
         />
-        <button className="px-4 py-2 bg-blue-600 rounded">Analyze</button>
+        <button className="px-4 py-2 bg-blue-600 rounded" disabled={loading}>
+          {loading ? "Analyzing…" : "Analyze"}
+        </button>
       </form>
-
-      {loading && <p>⏳ Analyzing... Please wait.</p>}
 
       {analysis && (
         <div className="mb-6">
@@ -58,4 +48,59 @@ export default function Home() {
       )}
     </div>
   );
+}
+
+// --- SERVER SIDE CODE (acts like API) ---
+export async function getServerSideProps(context) {
+  const url = context.query.url || null;
+  if (!url) return { props: {} };
+
+  try {
+    // Fetch target website HTML
+    const resp = await fetch(url);
+    const html = await resp.text();
+
+    // Ask Groq API for analysis + reimplementation
+    const groqRes = await fetch(`${process.env.GROQ_API_BASE}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "openai/gpt-oss-120b",
+        reasoning_effort: "high",
+        messages: [
+          {
+            role: "system",
+            content:
+              "Analyze this site HTML. Summarize design in Markdown. Then output a clean standalone HTML+Tailwind page that looks similar (no JS copied). Output:\n1. Analysis in Markdown\n2. Full <html> reimplementation."
+          },
+          { role: "user", content: html.slice(0, 8000) }
+        ],
+      }),
+    });
+
+    const data = await groqRes.json();
+    const content = data.choices?.[0]?.message?.content || "";
+
+    let analysis = "No analysis";
+    let generated = "<!DOCTYPE html><html><body>Error</body></html>";
+
+    if (content.includes("<html")) {
+      const parts = content.split("<html");
+      analysis = parts[0].trim();
+      generated = "<html" + parts[1];
+    } else {
+      analysis = content;
+    }
+
+    return {
+      props: { initialUrl: url, initialAnalysis: analysis, initialPreview: generated },
+    };
+  } catch (err) {
+    return {
+      props: { initialUrl: url, initialAnalysis: "⚠️ Error: " + err.message },
+    };
+  }
 }
