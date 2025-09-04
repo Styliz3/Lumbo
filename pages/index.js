@@ -1,4 +1,5 @@
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
 import CodeBlock from "../components/CodeBlock";
 
 export default function Home() {
@@ -23,41 +24,41 @@ export default function Home() {
     setMessages([...newMessages, { role: "assistant", content: data.reply }]);
   }
 
-  // Extract Lua code blocks with filenames
   function renderMessage(content, role) {
     if (role === "assistant") {
-      const codeRegex = /--\s*File:\s*(.*?)\n```lua([\s\S]*?)```/g;
-      const parts = [];
-      let match, lastIndex = 0;
-
-      while ((match = codeRegex.exec(content)) !== null) {
-        if (match.index > lastIndex) {
-          parts.push(<p key={lastIndex} className="my-2">{content.slice(lastIndex, match.index)}</p>);
-        }
-        parts.push(
-          <CodeBlock key={match.index} filename={match[1].trim()} code={match[2].trim()} />
-        );
-        lastIndex = codeRegex.lastIndex;
-      }
-
-      if (lastIndex < content.length) {
-        parts.push(<p key="end">{content.slice(lastIndex)}</p>);
-      }
-
-      return <div className="text-left">{parts}</div>;
+      return (
+        <ReactMarkdown
+          className="prose prose-invert text-left max-w-2xl mx-auto"
+          components={{
+            code({ inline, className, children }) {
+              const match = /language-(\w+)/.exec(className || "");
+              if (!inline && match?.[1] === "lua") {
+                return (
+                  <CodeBlock
+                    filename="Script.lua"
+                    code={String(children).replace(/\n$/, "")}
+                  />
+                );
+              }
+              return <code className="bg-gray-800 p-1 rounded">{children}</code>;
+            }
+          }}
+        >
+          {content}
+        </ReactMarkdown>
+      );
     }
 
-    return <div className="text-gray-400">{content}</div>;
+    return <p className="text-gray-400 text-center">{content}</p>;
   }
 
   return (
     <div className="bg-black text-white min-h-screen flex flex-col font-mono">
       <h1 className="text-3xl text-center mt-4 font-bold">Box.Lua</h1>
+
       <div className="flex-1 overflow-y-auto p-4">
         {messages.map((m, i) => (
-          <div key={i} className="text-center my-3">
-            {renderMessage(m.content, m.role)}
-          </div>
+          <div key={i} className="my-3">{renderMessage(m.content, m.role)}</div>
         ))}
       </div>
 
